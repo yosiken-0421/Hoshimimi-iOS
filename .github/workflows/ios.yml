@@ -1,0 +1,94 @@
+name: iOS build and optional TestFlight upload
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      upload_testflight:
+        description: '署名して TestFlight に送信する（Apple 設定が必要）'
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+      TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      PROFILE_NAME: ${{ vars.IOS_PROFILE_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show selected Xcode and SDK
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Bundle local game and generate Xcode project
+        run: |
+          bash ios/prepare-web.sh
+          cd ios
+          xcodegen generate
+      - name: Compile without signing (not installable IPA)
+        run: |
+          xcodebuild -project ios/Hoshimimi.xcodeproj -scheme Hoshimimi -configuration Release -sdk iphonesimulator -derivedDataPath "$RUNNER_TEMP/hoshimimi-sim" CODE_SIGNING_ALLOWED=NO build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hoshimimi-simulator-build
+          path: ${{ runner.temp }}/hoshimimi-sim/Build/Products/Release-iphonesimulator/Hoshimimi.app
+      - name: Explain unsigned result
+        if: ${{ !inputs.upload_testflight }}
+        run: echo 'Simulator compilation only. No signed IPA was generated and nothing was uploaded to TestFlight.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Validate signing configuration
+        if: ${{ inputs.upload_testflight }}
+        env:
+          P12: ${{ secrets.IOS_DISTRIBUTION_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+          PROFILE: ${{ secrets.IOS_PROFILE_BASE64 }}
+          API_KEY: ${{ secrets.ASC_API_KEY_P8 }}
+          API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+        run: |
+          for name in BUNDLE_ID TEAM_ID PROFILE_NAME P12 P12_PASSWORD PROFILE API_KEY API_KEY_ID API_ISSUER_ID; do
+            if [ -z "${!name}" ]; then echo "Missing required configuration: $name" >&2; exit 1; fi
+          done
+          if [[ "$BUNDLE_ID" == com.example.* ]]; then echo 'Replace the placeholder Bundle ID.' >&2; exit 1; fi
+      - name: Sign archive, export IPA and upload
+        if: ${{ inputs.upload_testflight }}
+        env:
+          P12: ${{ secrets.IOS_DISTRIBUTION_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+          PROFILE: ${{ secrets.IOS_PROFILE_BASE64 }}
+          API_KEY: ${{ secrets.ASC_API_KEY_P8 }}
+          API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/hoshimimi.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          trap 'security delete-keychain "$KEYCHAIN" 2>/dev/null || true; rm -rf "$RUNNER_TEMP/signing" "$HOME/.appstoreconnect/private_keys"' EXIT
+          mkdir -p "$RUNNER_TEMP/signing" "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/.appstoreconnect/private_keys"
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/signing/distribution.p12"
+          printf '%s' "$PROFILE" | base64 --decode > "$RUNNER_TEMP/signing/profile.mobileprovision"
+          security cms -D -i "$RUNNER_TEMP/signing/profile.mobileprovision" > "$RUNNER_TEMP/signing/profile.plist"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$RUNNER_TEMP/signing/profile.plist")
+          cp "$RUNNER_TEMP/signing/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/signing/distribution.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN"
+          xcodebuild -project ios/Hoshimimi.xcodeproj -scheme Hoshimimi -configuration Release -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Hoshimimi.xcarchive" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" archive
+          python3 - <<'PY'
+          import os, plistlib
+          options = {'method': 'app-store-connect', 'teamID': os.environ['TEAM_ID'], 'signingStyle': 'manual', 'provisioningProfiles': {os.environ['BUNDLE_ID']: os.environ['PROFILE_NAME']}}
+          with open(os.environ['RUNNER_TEMP'] + '/ExportOptions.plist', 'wb') as f: plistlib.dump(options, f)
+          PY
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Hoshimimi.xcarchive" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/ipa"
+          printf '%s' "$API_KEY" > "$HOME/.appstoreconnect/private_keys/AuthKey_$API_KEY_ID.p8"
+          xcrun altool --upload-app --type ios --file "$RUNNER_TEMP/ipa/Hoshimimi.ipa" --apiKey "$API_KEY_ID" --apiIssuer "$API_ISSUER_ID"
+          echo 'Apple upload command completed. Check App Store Connect processing and TestFlight tester availability separately.' >> "$GITHUB_STEP_SUMMARY"
