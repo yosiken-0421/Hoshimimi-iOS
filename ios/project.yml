@@ -7,7 +7,7 @@ settings:
     SWIFT_VERSION: '5.0'
     TARGETED_DEVICE_FAMILY: '1,2'
     # Build-only placeholder. Replace through BUNDLE_ID before signing or distribution.
-    PRODUCT_BUNDLE_IDENTIFIER: com.example.hoshimimi.preview
+    PRODUCT_BUNDLE_IDENTIFIER: com.yosiken0421.hoshimimi
     MARKETING_VERSION: '0.1.0'
     CURRENT_PROJECT_VERSION: '1'
 targets:
@@ -17,9 +17,9 @@ targets:
     sources:
       - path: Hoshimimi
         excludes: [Web]
-    resources:
       - path: Hoshimimi/Web
         type: folder
+        buildPhase: resources
     info:
       path: Generated/Info.plist
       properties:
