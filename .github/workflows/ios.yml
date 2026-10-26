@@ -38,7 +38,7 @@ jobs:
       - name: Verify bundled game resources
         run: |
           APP="$RUNNER_TEMP/hoshimimi-sim/Build/Products/Release-iphonesimulator/Hoshimimi.app"
-          for item in index.html game.js redesign.css town.js town.css assets/world.webp assets/cats.webp; do
+          for item in index.html game.js redesign.css town.js town.css assets/world.webp assets/cats.webp assets/shops-v3.webp assets/shopkeepers-v3.webp assets/interiors-v3.webp; do
             test -s "$APP/Web/$item" || { echo "Missing game resource: $item"; exit 1; }
           done
       - uses: actions/upload-artifact@v4

@@ -5,7 +5,10 @@ import UIKit
 @main
 struct HoshimimiApp: App {
     var body: some Scene {
-        WindowGroup { LocalGameView().ignoresSafeArea() }
+        WindowGroup {
+            LocalGameView()
+                .background(Color(red: 0.125, green: 0.122, blue: 0.149).ignoresSafeArea())
+        }
     }
 }
 

@@ -8,7 +8,7 @@ settings:
     TARGETED_DEVICE_FAMILY: '1,2'
     # Build-only placeholder. Replace through BUNDLE_ID before signing or distribution.
     PRODUCT_BUNDLE_IDENTIFIER: com.yosiken0421.hoshimimi
-    MARKETING_VERSION: '0.2.0'
+    MARKETING_VERSION: '1.1.0'
     CURRENT_PROJECT_VERSION: '1'
 targets:
   Hoshimimi:
