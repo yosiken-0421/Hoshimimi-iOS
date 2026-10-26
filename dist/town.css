@@ -20,3 +20,5 @@
 /* Rapid delivery taps must never trigger double-tap smart zoom. Keep pinch zoom and scrolling available. */
 html{touch-action:manipulation}
 button,[role="button"],label.pill{touch-action:manipulation;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+
+.shop-hit{cursor:pointer;touch-action:manipulation}.shop-hit:focus-visible{stroke:#ffe4a3;stroke-width:2;outline:none;rx:12px}
